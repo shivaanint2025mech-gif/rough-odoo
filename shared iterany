@@ -1,0 +1,25 @@
+const express = require("express");
+const router = express.Router();
+const crypto = require("crypto");
+const db = require("../config/db");
+
+router.post("/create/:tripId",(req,res)=>{
+
+    const token = crypto.randomBytes(16).toString("hex");
+
+    const sql = `
+    INSERT INTO shared_trips
+    (trip_id,share_token)
+    VALUES(?,?)
+    `;
+
+    db.query(sql,[req.params.tripId,token],(err,result)=>{
+        if(err) return res.status(500).json(err);
+
+        res.json({
+            link:`http://localhost:3000/public/${token}`
+        });
+    });
+});
+
+module.exports = router;
