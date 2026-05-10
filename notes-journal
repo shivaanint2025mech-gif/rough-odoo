@@ -1,0 +1,44 @@
+const express = require("express");
+const router = express.Router();
+const db = require("../config/db");
+
+router.post("/add",(req,res)=>{
+
+    const {
+        trip_id,
+        content,
+        note_date
+    } = req.body;
+
+    const sql = `
+    INSERT INTO notes
+    (trip_id,content,note_date)
+    VALUES(?,?,?)
+    `;
+
+    db.query(sql,[
+        trip_id,
+        content,
+        note_date
+    ],(err,result)=>{
+        if(err) return res.status(500).json(err);
+
+        res.json({message:"Note Added"});
+    });
+});
+
+router.get("/:tripId",(req,res)=>{
+
+    const sql = `
+    SELECT * FROM notes
+    WHERE trip_id=?
+    `;
+
+    db.query(sql,[req.params.tripId],(err,result)=>{
+        if(err) return res.status(500).json(err);
+
+        res.json(result);
+    });
+});
+
+module.exports = router;
