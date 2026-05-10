@@ -113,7 +113,7 @@ exports.createTrip = async (req, res) => {
     [req.user.id, title, description, start_date, end_date]
   );
 
-  console.log("trip created"); // human touch
+  console.log("trip created"); 
 
   res.json(trip.rows[0]);
 };
