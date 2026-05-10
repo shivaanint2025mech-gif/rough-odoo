@@ -1,0 +1,349 @@
+backend/
+ ├── src/
+ │   ├── config/db.js
+ │   ├── middleware/auth.js
+ │   ├── controllers/
+ │   │     ├── authController.js
+ │   │     ├── tripController.js
+ │   │     └── itineraryController.js
+ │   ├── routes/
+ │   │     ├── authRoutes.js
+ │   │     ├── tripRoutes.js
+ │   │     └── itineraryRoutes.js
+ │   └── server.js
+CREATE TABLE users (
+  id SERIAL PRIMARY KEY,
+  name TEXT,
+  email TEXT UNIQUE,
+  password TEXT
+);
+
+CREATE TABLE trips (
+  id SERIAL PRIMARY KEY,
+  user_id INT REFERENCES users(id),
+  title TEXT,
+  description TEXT,
+  start_date DATE,
+  end_date DATE
+);
+
+CREATE TABLE stops (
+  id SERIAL PRIMARY KEY,
+  trip_id INT REFERENCES trips(id),
+  city TEXT,
+  start_date DATE,
+  end_date DATE
+);
+const { Pool } = require('pg');
+
+const pool = new Pool({
+  user: 'postgres',
+  password: 'password',
+  database: 'traveloop',
+  port: 5432
+});
+
+module.exports = pool;
+const jwt = require('jsonwebtoken');
+
+module.exports = (req, res, next) => {
+  const token = req.headers.authorization;
+
+  if (!token) {
+    return res.status(401).json({ msg: "no token" });
+  }
+
+  try {
+    const decoded = jwt.verify(token, "secret");
+    req.user = decoded;
+    next();
+  } catch (err) {
+    res.status(401).json({ msg: "invalid token" });
+  }
+};
+const pool = require('../config/db');
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
+
+exports.signup = async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+
+    const hash = await bcrypt.hash(password, 10);
+
+    const user = await pool.query(
+      "INSERT INTO users(name,email,password) VALUES($1,$2,$3) RETURNING *",
+      [name, email, hash]
+    );
+
+    res.json(user.rows[0]);
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({ msg: "error signup" });
+  }
+};
+
+exports.login = async (req, res) => {
+  const { email, password } = req.body;
+
+  const user = await pool.query("SELECT * FROM users WHERE email=$1", [email]);
+
+  if (user.rows.length === 0) {
+    return res.status(400).json({ msg: "user not found" });
+  }
+
+  const valid = await bcrypt.compare(password, user.rows[0].password);
+
+  if (!valid) {
+    return res.status(400).json({ msg: "wrong password" });
+  }
+
+  const token = jwt.sign({ id: user.rows[0].id }, "secret");
+
+  res.json({ token });
+};
+const pool = require('../config/db');
+
+exports.createTrip = async (req, res) => {
+  const { title, description, start_date, end_date } = req.body;
+
+  const trip = await pool.query(
+    `INSERT INTO trips(user_id,title,description,start_date,end_date)
+     VALUES($1,$2,$3,$4,$5) RETURNING *`,
+    [req.user.id, title, description, start_date, end_date]
+  );
+
+  console.log("trip created"); // human touch
+
+  res.json(trip.rows[0]);
+};
+
+exports.getTrips = async (req, res) => {
+  const trips = await pool.query(
+    "SELECT * FROM trips WHERE user_id=$1",
+    [req.user.id]
+  );
+
+  res.json(trips.rows);
+};
+const pool = require('../config/db');
+
+exports.addStop = async (req, res) => {
+  const { trip_id, city, start_date, end_date } = req.body;
+
+  const stop = await pool.query(
+    `INSERT INTO stops(trip_id,city,start_date,end_date)
+     VALUES($1,$2,$3,$4) RETURNING *`,
+    [trip_id, city, start_date, end_date]
+  );
+
+  res.json(stop.rows[0]);
+};
+const router = require('express').Router();
+const { signup, login } = require('../controllers/authController');
+
+router.post('/signup', signup);
+router.post('/login', login);
+
+module.exports = router;
+const router = require('express').Router();
+const { createTrip, getTrips } = require('../controllers/tripController');
+const auth = require('../middleware/auth');
+
+router.post('/', auth, createTrip);
+router.get('/', auth, getTrips);
+
+module.exports = router;
+const router = require('express').Router();
+const { addStop } = require('../controllers/itineraryController');
+const auth = require('../middleware/auth');
+
+router.post('/stop', auth, addStop);
+
+module.exports = router;
+const express = require('express');
+const app = express();
+
+app.use(express.json());
+
+app.use('/api/auth', require('./routes/authRoutes'));
+app.use('/api/trips', require('./routes/tripRoutes'));
+app.use('/api/itinerary', require('./routes/itineraryRoutes'));
+
+app.listen(5000, () => {
+  console.log("server running...");
+});
+src/
+ ├── pages/
+ ├── hooks/
+ ├── services/
+ └── App.tsx
+import axios from "axios";
+
+const api = axios.create({
+  baseURL: "http://localhost:5000/api"
+});
+
+export default api;
+import { useEffect, useState } from "react";
+import api from "../services/api";
+
+export const useTrips = () => {
+  const [trips, setTrips] = useState<any[]>([]);
+
+  const fetchTrips = async () => {
+    try {
+      const res = await api.get("/trips", {
+        headers: {
+          authorization: localStorage.getItem("token")
+        }
+      });
+
+      setTrips(res.data);
+    } catch (err) {
+      console.log("error fetching trips");
+    }
+  };
+
+  useEffect(() => {
+    fetchTrips();
+  }, []);
+
+  return { trips, fetchTrips };
+};
+import { useState } from "react";
+import api from "../services/api";
+
+export default function Login() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+
+  const login = async () => {
+    const res = await api.post("/auth/login", { email, password });
+    localStorage.setItem("token", res.data.token);
+    alert("logged in");
+  };
+
+  return (
+    <div className="p-6">
+      <h2>Login</h2>
+
+      <input placeholder="email" onChange={e => setEmail(e.target.value)} />
+      <input type="password" onChange={e => setPassword(e.target.value)} />
+
+      <button onClick={login}>Login</button>
+    </div>
+  );
+}import { useTrips } from "../hooks/useTrips";
+
+export default function Dashboard() {
+  const { trips } = useTrips();
+
+  return (
+    <div>
+      <h1>Dashboard</h1>
+
+      <button>Plan New Trip</button>
+
+      {trips.map((t: any) => (
+        <div key={t.id}>
+          <h3>{t.title}</h3>
+        </div>
+      ))}
+    </div>
+  );
+}
+import { useState } from "react";
+import api from "../services/api";
+
+export default function CreateTrip() {
+  const [title, setTitle] = useState("");
+
+  const createTrip = async () => {
+    await api.post(
+      "/trips",
+      { title },
+      {
+        headers: {
+          authorization: localStorage.getItem("token")
+        }
+      }
+    );
+
+    alert("trip added");
+  };
+
+  return (
+    <div>
+      <h2>Create Trip</h2>
+
+      <input onChange={e => setTitle(e.target.value)} />
+      <button onClick={createTrip}>Save</button>
+    </div>
+  );
+}
+import { useTrips } from "../hooks/useTrips";
+
+export default function MyTrips() {
+  const { trips } = useTrips();
+
+  return (
+    <div>
+      <h2>My Trips</h2>
+
+      {trips.map((t: any) => (
+        <div key={t.id}>{t.title}</div>
+      ))}
+    </div>
+  );
+}
+import { useState } from "react";
+import api from "../services/api";
+
+export default function Itinerary() {
+  const [city, setCity] = useState("");
+
+  const addStop = async () => {
+    await api.post(
+      "/itinerary/stop",
+      { city, trip_id: 1 }, // simple for hackathon
+      {
+        headers: {
+          authorization: localStorage.getItem("token")
+        }
+      }
+    );
+
+    alert("stop added");
+  };
+
+  return (
+    <div>
+      <h2>Itinerary Builder</h2>
+
+      <input placeholder="city" onChange={e => setCity(e.target.value)} />
+
+      <button onClick={addStop}>Add</button>
+    </div>
+  );
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
